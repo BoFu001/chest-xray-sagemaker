@@ -29,6 +29,13 @@ estimator = TensorFlow(
     framework_version="2.14",        # SageMaker official TensorFlow container version
     py_version="py310",
     model_dir=False,                 # don't auto-inject --model_dir (we use our own)
+    # Scrape per-epoch metrics from the logs -> charts in the SageMaker console / CloudWatch
+    metric_definitions=[
+        {"Name": "train:loss",          "Regex": r"- loss: ([0-9\.]+)"},
+        {"Name": "train:accuracy",      "Regex": r"- accuracy: ([0-9\.]+)"},
+        {"Name": "validation:loss",     "Regex": r"- val_loss: ([0-9\.]+)"},
+        {"Name": "validation:accuracy", "Regex": r"- val_accuracy: ([0-9\.]+)"},
+    ],
     hyperparameters={
         "epochs": 3,
         "batch-size": 32,

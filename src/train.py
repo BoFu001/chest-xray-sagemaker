@@ -54,13 +54,13 @@ def main():
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     model.summary()
 
-    model.fit(train_ds, validation_data=val_ds, epochs=args.epochs)
+    model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2)
 
     # ---- Evaluate on the held-out test set (never seen during training) ----
     if args.test:
         test_ds = load(args.test, args.batch_size, shuffle=False)   # keep order aligned
         y_true = np.concatenate([y.numpy() for _, y in test_ds]).astype(int).flatten()
-        y_prob = model.predict(test_ds).flatten()
+        y_prob = model.predict(test_ds, verbose=0).flatten()
         y_pred = (y_prob >= 0.5).astype(int)
 
         print("\n==== Test set evaluation ====")
