@@ -30,6 +30,9 @@ def load(data_dir, batch_size, shuffle=True):
 
 
 def main():
+    # Fix all random seeds so experiments are reproducible
+    tf.keras.utils.set_random_seed(42)
+
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=32)
