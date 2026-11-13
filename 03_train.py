@@ -38,11 +38,12 @@ estimator = TensorFlow(
     sagemaker_session=sess,
 )
 
-# Two data channels: train / validation, mapping to two S3 "folders"
+# Three data channels: train / validation / test, mapping to three S3 "folders"
 estimator.fit(
     {
         "train": f"{data_uri}/train",
         "validation": f"{data_uri}/val",
+        "test": f"{data_uri}/test",
     }
 )
 
