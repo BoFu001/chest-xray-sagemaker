@@ -30,8 +30,9 @@ def load(data_dir, batch_size, shuffle=True):
 
 
 def main():
-    # Fix all random seeds so experiments are reproducible
-    tf.keras.utils.set_random_seed(42)
+    # Fully reproducible experiments
+    tf.keras.utils.set_random_seed(42)          # Python / NumPy / TensorFlow seeds
+    tf.config.experimental.enable_op_determinism()  # force deterministic GPU ops
 
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3)
