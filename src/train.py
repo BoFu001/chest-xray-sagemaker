@@ -1,0 +1,61 @@
+"""Minimal working baseline: VGG16 transfer learning, pneumonia binary classification.
+Get it running first, then add features step by step.
+
+SageMaker conventions: data is read from SM_CHANNEL_*, the model is saved to SM_MODEL_DIR.
+"""
+import argparse
+import os
+
+import tensorflow as tf
+from tensorflow.keras import layers, Model
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.applications.vgg16 import preprocess_input
+
+IMG_SIZE = 224
+CLASS_NAMES = ["NORMAL", "PNEUMONIA"]   # NORMAL=0, PNEUMONIA=1
+
+
+def load(data_dir, batch_size):
+    """Read {data_dir}/{NORMAL,PNEUMONIA}/*.jpeg and resize to 224x224."""
+    return tf.keras.utils.image_dataset_from_directory(
+        data_dir,
+        label_mode="binary",
+        class_names=CLASS_NAMES,
+        image_size=(IMG_SIZE, IMG_SIZE),
+        batch_size=batch_size,
+    )
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--epochs", type=int, default=3)
+    p.add_argument("--batch-size", type=int, default=32)
+    p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
+    p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
+    p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
+    args = p.parse_args()
+
+    train_ds = load(args.train, args.batch_size)
+    val_ds = load(args.validation, args.batch_size)
+
+    # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> probability
+    inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
+    x = layers.Lambda(preprocess_input)(inputs)
+    base = VGG16(include_top=False, weights="imagenet", input_tensor=x)
+    base.trainable = False                                  # freeze; train only the output layer below
+    x = layers.Flatten()(base.output)
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+    model = Model(inputs, outputs)
+
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+    model.summary()
+
+    model.fit(train_ds, validation_data=val_ds, epochs=args.epochs)
+
+    # Save as a TF SavedModel (under version dir "1", for later deployment)
+    model.save(os.path.join(args.model_dir, "1"))
+    print("Model saved.")
+
+
+if __name__ == "__main__":
+    main()
