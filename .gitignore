@@ -12,3 +12,7 @@ samples/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Local agent config (do not publish)
+CLAUDE.md
+.claude/

@@ -37,7 +37,7 @@ estimator = TensorFlow(
         {"Name": "validation:accuracy", "Regex": r"- val_accuracy: ([0-9\.]+)"},
     ],
     hyperparameters={
-        "epochs": 3,
+        "epochs": 10,
         "batch-size": 32,
     },
     output_path=output_uri,
