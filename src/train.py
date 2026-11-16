@@ -1,44 +1,20 @@
-"""VGG16 transfer learning, pneumonia binary classification.
-Adds balanced class weights + per-class recall tracking (train & val) + test evaluation.
+"""VGG16 transfer learning, pneumonia binary classification — minimal reproducible baseline.
 
 SageMaker conventions: data is read from SM_CHANNEL_*, the model is saved to SM_MODEL_DIR.
 """
 import argparse
 import os
 
-import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.applications import VGG16
 from tensorflow.keras.applications.vgg16 import preprocess_input
-from sklearn.metrics import confusion_matrix, classification_report
 
 IMG_SIZE = 224
-CLASS_NAMES = ["NORMAL", "PNEUMONIA"]   # NORMAL=0, PNEUMONIA=1 (positive class)
+CLASS_NAMES = ["NORMAL", "PNEUMONIA"]   # NORMAL=0, PNEUMONIA=1
 
 
-class NormalRecall(tf.keras.metrics.Metric):
-    """Recall of the NORMAL class (label 0) = specificity = TN / (TN + FP).
-    Keras has no built-in recall for the negative class, so we build it."""
-
-    def __init__(self, name="recall_normal", **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.tn = tf.keras.metrics.TrueNegatives()
-        self.fp = tf.keras.metrics.FalsePositives()
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        self.tn.update_state(y_true, y_pred)
-        self.fp.update_state(y_true, y_pred)
-
-    def result(self):
-        return self.tn.result() / (self.tn.result() + self.fp.result() + 1e-7)
-
-    def reset_state(self):
-        self.tn.reset_state()
-        self.fp.reset_state()
-
-
-def load(data_dir, batch_size, shuffle=True):
+def load(data_dir, batch_size):
     """Read {data_dir}/{NORMAL,PNEUMONIA}/*.jpeg and resize to 224x224."""
     return tf.keras.utils.image_dataset_from_directory(
         data_dir,
@@ -46,23 +22,12 @@ def load(data_dir, batch_size, shuffle=True):
         class_names=CLASS_NAMES,
         image_size=(IMG_SIZE, IMG_SIZE),
         batch_size=batch_size,
-        shuffle=shuffle,
     )
-
-
-def class_weights(train_dir):
-    """Balanced (inverse-frequency) weights: total / (n_classes * count_i). Mean weight = 1,
-    so the total loss / step size stays comparable to the unweighted baseline."""
-    counts = [len(os.listdir(os.path.join(train_dir, c))) for c in CLASS_NAMES]
-    total = sum(counts)
-    weights = {i: total / (len(CLASS_NAMES) * counts[i]) for i in range(len(CLASS_NAMES))}
-    print(f"class counts {dict(zip(CLASS_NAMES, counts))} -> class_weight {weights}")
-    return weights
 
 
 def main():
     # Fully reproducible experiments
-    tf.keras.utils.set_random_seed(42)          # Python / NumPy / TensorFlow seeds
+    tf.keras.utils.set_random_seed(42)              # Python / NumPy / TensorFlow seeds
     tf.config.experimental.enable_op_determinism()  # force deterministic GPU ops
 
     p = argparse.ArgumentParser()
@@ -71,11 +36,10 @@ def main():
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
-    p.add_argument("--test", default=os.environ.get("SM_CHANNEL_TEST"))
     args = p.parse_args()
 
-    train_ds = load(args.train, args.batch_size, shuffle=True)
-    val_ds = load(args.validation, args.batch_size, shuffle=False)
+    train_ds = load(args.train, args.batch_size)
+    val_ds = load(args.validation, args.batch_size)
 
     # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> probability
     inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
@@ -86,38 +50,10 @@ def main():
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
 
-    model.compile(
-        optimizer="adam",
-        loss="binary_crossentropy",
-        metrics=[
-            "accuracy",
-            tf.keras.metrics.Recall(name="recall_pneumonia"),   # PNEUMONIA = positive class (1)
-            NormalRecall(name="recall_normal"),                 # NORMAL = negative class (0)
-        ],
-    )
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     model.summary()
 
-    # class_weight affects the loss only (metrics stay unweighted), so per-class recall is honest
-    model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=args.epochs,
-        class_weight=class_weights(args.train),
-        verbose=2,
-    )
-
-    # ---- Evaluate on the held-out test set (never seen during training) ----
-    if args.test:
-        test_ds = load(args.test, args.batch_size, shuffle=False)   # keep order aligned
-        y_true = np.concatenate([y.numpy() for _, y in test_ds]).astype(int).flatten()
-        y_prob = model.predict(test_ds, verbose=0).flatten()
-        y_pred = (y_prob >= 0.5).astype(int)
-
-        print("\n==== Test set evaluation ====")
-        print("Confusion matrix (rows=true, cols=pred), classes =", CLASS_NAMES)
-        print(confusion_matrix(y_true, y_pred))
-        print()
-        print(classification_report(y_true, y_pred, target_names=CLASS_NAMES, digits=4))
+    model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2)
 
     # Save as a TF SavedModel (under version dir "1", for later deployment)
     model.save(os.path.join(args.model_dir, "1"))
