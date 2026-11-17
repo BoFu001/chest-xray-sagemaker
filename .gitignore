@@ -1,6 +1,5 @@
 # Data (too large for version control)
 data/
-samples/
 
 # Credentials / secrets
 *.json

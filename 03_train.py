@@ -13,7 +13,7 @@ from config import REGION, EXECUTION_ROLE_ARN, S3_DATA_PREFIX, S3_OUTPUT_PREFIX
 
 sess = sagemaker.Session(boto3.Session(region_name=REGION))
 bucket = sess.default_bucket()                       # sagemaker-eu-central-1-766577086453
-data_uri = f"s3://{bucket}/{S3_DATA_PREFIX}"         # .../chest-xray-pneumonia/data
+data_uri = f"s3://{bucket}/{S3_DATA_PREFIX}"         # .../cats-vs-dogs/data
 output_uri = f"s3://{bucket}/{S3_OUTPUT_PREFIX}"     # models land here
 
 estimator = TensorFlow(
@@ -30,7 +30,7 @@ estimator = TensorFlow(
         "batch-size": 32,
     },
     output_path=output_uri,
-    base_job_name="chest-xray-vgg16",
+    base_job_name="cats-vs-dogs-vgg16",
     sagemaker_session=sess,
 )
 

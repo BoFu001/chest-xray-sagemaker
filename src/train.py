@@ -1,4 +1,4 @@
-"""VGG16 transfer learning, pneumonia binary classification — minimal reproducible baseline.
+"""VGG16 transfer learning, cats-vs-dogs binary classification — minimal reproducible baseline.
 
 SageMaker conventions: data is read from SM_CHANNEL_*, the model is saved to SM_MODEL_DIR.
 """
@@ -11,11 +11,11 @@ from tensorflow.keras.applications import VGG16
 from tensorflow.keras.applications.vgg16 import preprocess_input
 
 IMG_SIZE = 224
-CLASS_NAMES = ["NORMAL", "PNEUMONIA"]   # NORMAL=0, PNEUMONIA=1
+CLASS_NAMES = ["cats", "dogs"]   # cats=0, dogs=1
 
 
 def load(data_dir, batch_size):
-    """Read {data_dir}/{NORMAL,PNEUMONIA}/*.jpeg and resize to 224x224."""
+    """Read {data_dir}/{cats,dogs}/*.jpg and resize to 224x224."""
     return tf.keras.utils.image_dataset_from_directory(
         data_dir,
         label_mode="binary",
