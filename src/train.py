@@ -5,6 +5,7 @@ SageMaker conventions: data is read from SM_CHANNEL_*, the model is saved to SM_
 import argparse
 import os
 
+import mlflow
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.applications import VGG16
@@ -22,6 +23,7 @@ def load(data_dir, batch_size):
         class_names=CLASS_NAMES,
         image_size=(IMG_SIZE, IMG_SIZE),
         batch_size=batch_size,
+        seed=42,                     # fixed shuffle order, independent of global RNG state
     )
 
 
@@ -29,6 +31,7 @@ def main():
     # Fully reproducible experiments
     tf.keras.utils.set_random_seed(42)              # Python / NumPy / TensorFlow seeds
     tf.config.experimental.enable_op_determinism()  # force deterministic GPU ops
+    mlflow.tensorflow.autolog(log_models=False, checkpoint=False)   # params + per-epoch metrics only
 
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3)
@@ -53,7 +56,9 @@ def main():
     model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
     model.summary()
 
-    model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2)
+    with mlflow.start_run(run_name=os.environ.get("TRAINING_JOB_NAME")):   # name the run after the SageMaker job
+        mlflow.log_param("data_batch_size", args.batch_size)               # batching is done by the dataset, so autolog can't see it
+        model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2)
 
     # Save as a TF SavedModel (under version dir "1", for later deployment)
     model.save(os.path.join(args.model_dir, "1"))

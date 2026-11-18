@@ -9,7 +9,7 @@ import boto3
 import sagemaker
 from sagemaker.tensorflow import TensorFlow
 
-from config import REGION, EXECUTION_ROLE_ARN, S3_DATA_PREFIX, S3_OUTPUT_PREFIX
+from config import REGION, EXECUTION_ROLE_ARN, S3_DATA_PREFIX, S3_OUTPUT_PREFIX, MLFLOW_APP_ARN
 
 sess = sagemaker.Session(boto3.Session(region_name=REGION))
 bucket = sess.default_bucket()                       # sagemaker-eu-central-1-766577086453
@@ -28,6 +28,10 @@ estimator = TensorFlow(
     hyperparameters={
         "epochs": 3,
         "batch-size": 32,
+    },
+    environment={
+        "MLFLOW_TRACKING_URI": MLFLOW_APP_ARN,     # MLflow client reads these on startup
+        "MLFLOW_EXPERIMENT_NAME": "cats-vs-dogs",
     },
     output_path=output_uri,
     base_job_name="cats-vs-dogs-vgg16",

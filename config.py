@@ -7,6 +7,9 @@ REGION = "eu-central-1"
 # to read/write S3. (Created in the IAM console: AWS service -> SageMaker -> Execution)
 EXECUTION_ROLE_ARN = "arn:aws:iam::766577086453:role/AmazonSageMaker-ExecutionRole-chestxray"
 
+# Serverless MLflow App that training jobs log experiments to
+MLFLOW_APP_ARN = "arn:aws:sagemaker:eu-central-1:766577086453:mlflow-app/app-22LLVGA4HBCJ"
+
 # ---------- S3 layout ----------
 # SageMaker uses a default bucket: sagemaker-eu-central-1-766577086453
 S3_PREFIX        = "cats-vs-dogs"                # top-level "folder" in the bucket
