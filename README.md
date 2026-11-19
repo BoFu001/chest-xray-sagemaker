@@ -46,24 +46,29 @@ the AWS / MLOps workflow.
   the MLflow tracking URI and experiment name as environment variables).
 - **`src/train.py`** — the *training script* that actually runs inside the cloud
   container. An **end-to-end model**: raw pixels → VGG16 preprocessing → frozen
-  VGG16 convolutional base → classifier head → sigmoid probability. Baking the
-  preprocessing into the model means the future endpoint accepts raw images.
-  Seeds are fixed (including the dataset shuffle) and GPU ops forced deterministic,
-  so runs are reproducible.
+  VGG16 convolutional base → flatten → feature-wise standardisation → classifier
+  head → sigmoid probability. Baking the preprocessing into the model means the
+  future endpoint accepts raw images. The standardisation statistics are computed on
+  the **training set only** (no leakage from validation/test) and stored inside the
+  model, so training and serving can never drift apart. Seeds are fixed (including
+  the dataset shuffle) and GPU ops forced deterministic, so runs are reproducible.
 - **`src/requirements.txt`** — pinned MLflow client + `sagemaker-mlflow` plugin,
   installed into the training container at startup.
 
 ## Experiment tracking
 
-Each training job logs to a SageMaker serverless MLflow App:
+Each training job logs to a SageMaker serverless MLflow App, explicitly:
 
-- `mlflow.tensorflow.autolog()` records optimizer parameters and per-epoch
-  loss / accuracy / val_loss / val_accuracy.
+- **Parameters** (once, before training): `epochs`, `batch_size`, `learning_rate`.
+- **Metrics** (every epoch, via a Keras callback): `train_loss`, `train_accuracy`,
+  `val_loss`, `val_accuracy`, with step = epoch number starting at 1.
 - Each MLflow run is **named after its SageMaker training job**, so a run can be traced
   straight to its job logs, code snapshot, and `model.tar.gz` in S3.
-- Batch size is set on the `tf.data` dataset, which autolog can't see, so it is logged
-  explicitly as `data_batch_size`.
-- Autolog checkpoints and model logging are off: the model is stored once, by SageMaker.
+
+`mlflow.tensorflow.autolog()` was tried first and dropped: it reads the training
+dataset before `fit()` to fingerprint it, which silently shifts the shuffle order and
+changes the results; it also logs dozens of irrelevant or duplicated parameters and
+metrics, and saves model checkpoints by default.
 
 ## Dataset
 
@@ -71,17 +76,26 @@ Each training job logs to a SageMaker serverless MLflow App:
 25,000 labelled images. Images are **not** committed; run `01_download_data.py`.
 After splitting (balanced): train 14,000 · val 3,000 · test 3,000.
 
-## Baseline results
+## Results
 
-| Model | Epochs | Val accuracy | Training time |
+One change at a time, 3 epochs, learning rate 0.001, batch size 32, ml.g4dn.xlarge:
+
+| Model | Val accuracy | Val loss | Training time |
 |---|---|---|---|
-| VGG16 (frozen) + Flatten + Dense(1) | 3 | **97.97%** | 456 s on ml.g4dn.xlarge |
+| VGG16 (frozen) + Flatten + Dense(1) | 97.90% | 0.988 | 435 s |
+| + feature-wise standardisation | 97.87% | **0.108** | 551 s |
 
-A deliberately minimal baseline. **Reproducibility is verified**: two independent
-training jobs produced identical metrics to every digit. Validation accuracy is stable,
-but validation loss is high and noisy (1.004 → 0.836 → 1.048): the head becomes
-over-confident on the few images it gets wrong — the first target for the
-regularization step below.
+**Reproducibility is verified**: two independent training jobs of the first configuration
+produced identical metrics to every digit.
+
+- **Without standardisation** the raw VGG16 features (25,088 dimensions, unbounded
+  ReLU outputs) drive the logits to extremes: accuracy is high, but the few wrong
+  predictions are made with near-100% confidence, so validation loss (0.99) is worse
+  than random guessing (0.69) and rises every epoch.
+- **Standardising the features** cuts validation loss ~9× and makes it decrease over
+  epochs, with the same accuracy. Training loss, however, drops to 0.002 (train
+  accuracy 99.96%): the head is now memorising the training set — the target for the
+  regularization step below.
 
 Changing only the data shuffle order moved validation accuracy by ~0.4%, which is
 why every source of randomness is pinned: otherwise run-to-run noise would be
@@ -116,6 +130,7 @@ once via AWS Service Quotas for a new account.
 ## Roadmap
 
 - [x] Experiment tracking with SageMaker serverless MLflow
+- [x] Feature-wise standardisation of the VGG16 features
 - [ ] Regularization pass (dropout, data augmentation, early stopping) vs. baseline
 - [ ] Automatic hyperparameter tuning (SageMaker `HyperparameterTuner`)
 - [ ] Deploy a real-time inference **endpoint** + test client, evaluated on the held-out test set
