@@ -15,7 +15,7 @@ IMG_SIZE = 224
 CLASS_NAMES = ["cats", "dogs"]   # cats=0, dogs=1
 
 
-def load(data_dir, batch_size):
+def load(data_dir, batch_size, shuffle):
     """Read {data_dir}/{cats,dogs}/*.jpg and resize to 224x224."""
     return tf.keras.utils.image_dataset_from_directory(
         data_dir,
@@ -23,6 +23,7 @@ def load(data_dir, batch_size):
         class_names=CLASS_NAMES,
         image_size=(IMG_SIZE, IMG_SIZE),
         batch_size=batch_size,
+        shuffle=shuffle,
         seed=42,                     # fixed shuffle order, independent of global RNG state
     )
 
@@ -41,15 +42,22 @@ def main():
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
     args = p.parse_args()
 
-    train_ds = load(args.train, args.batch_size)
-    val_ds = load(args.validation, args.batch_size)
+    train_ds = load(args.train, args.batch_size, shuffle=True)
+    val_ds = load(args.validation, args.batch_size, shuffle=False)
 
-    # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> probability
+    # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> standardise -> probability
     inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
     x = layers.Lambda(preprocess_input)(inputs)
     base = VGG16(include_top=False, weights="imagenet", input_tensor=x)
     base.trainable = False                                  # freeze; train only the output layer below
     x = layers.Flatten()(base.output)
+
+    # Feature-wise standardisation (like StandardScaler), statistics from the training set only
+    norm = layers.Normalization()
+    features = Model(inputs, x).predict(load(args.train, args.batch_size, shuffle=False), verbose=0)
+    norm.adapt(features)
+    x = norm(x)
+
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
 
