@@ -41,6 +41,7 @@ def main():
     p.add_argument("--hidden-units", type=int, default=10)
     p.add_argument("--dropout", type=float, default=0.0)
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
+    p.add_argument("--model_dir", dest="sagemaker_model_dir", help=argparse.SUPPRESS)   # injected by tuning jobs; unused, own dest so it cannot overwrite --model-dir
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
     args = p.parse_args()
