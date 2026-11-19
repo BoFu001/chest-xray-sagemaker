@@ -29,6 +29,7 @@ estimator = TensorFlow(
         "epochs": 10,
         "batch-size": 32,
         "learning-rate": 0.001,
+        "patience": 3,
     },
     environment={
         "MLFLOW_TRACKING_URI": MLFLOW_APP_ARN,     # MLflow client reads these on startup

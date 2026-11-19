@@ -37,6 +37,7 @@ def main():
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--learning-rate", type=float, default=0.001)
+    p.add_argument("--patience", type=int, default=3)
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
@@ -75,9 +76,23 @@ def main():
         }, step=epoch + 1)
     )
 
+    # Stop when val_loss stops improving and roll back to the best epoch's weights
+    early_stop = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=args.patience,
+                                                  restore_best_weights=True, verbose=1)
+
     with mlflow.start_run(run_name=os.environ.get("TRAINING_JOB_NAME")):   # name the run after the SageMaker job
-        mlflow.log_params({"epochs": args.epochs, "batch_size": args.batch_size, "learning_rate": args.learning_rate})
-        model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2, callbacks=[log_epoch])
+        mlflow.log_params({"epochs": args.epochs, "batch_size": args.batch_size,
+                           "learning_rate": args.learning_rate, "patience": args.patience})
+        history = model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2,
+                            callbacks=[log_epoch, early_stop])
+
+        # The saved model is the best epoch, not the last one: log its scores explicitly
+        best = early_stop.best_epoch                       # 0-based index of the best epoch
+        mlflow.log_metrics({
+            "best_epoch": best + 1,                        # 1-based, consistent with the metric steps
+            "best_val_loss": early_stop.best,
+            "best_val_accuracy": history.history["val_accuracy"][best],
+        })
 
     # Save as a TF SavedModel (under version dir "1", for later deployment)
     model.save(os.path.join(args.model_dir, "1"))
