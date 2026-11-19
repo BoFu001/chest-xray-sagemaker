@@ -26,7 +26,7 @@ estimator = TensorFlow(
     py_version="py310",
     model_dir=False,                 # don't auto-inject --model_dir (we use our own)
     hyperparameters={
-        "epochs": 3,
+        "epochs": 10,
         "batch-size": 32,
         "learning-rate": 0.001,
     },
