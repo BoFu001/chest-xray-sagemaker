@@ -98,6 +98,7 @@ def main():
             "best_val_loss": early_stop.best,
             "best_val_accuracy": history.history["val_accuracy"][best],
         })
+        print(f"best_val_loss={early_stop.best:.6f}")              # parsed from the log by the SageMaker tuner
 
     # Save as a TF SavedModel (under version dir "1", for later deployment)
     model.save(os.path.join(args.model_dir, "1"))
