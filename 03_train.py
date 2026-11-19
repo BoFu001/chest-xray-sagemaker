@@ -31,6 +31,7 @@ estimator = TensorFlow(
         "learning-rate": 0.0001,
         "patience": 3,
         "hidden-units": 10,
+        "dropout": 0.0,
     },
     environment={
         "MLFLOW_TRACKING_URI": MLFLOW_APP_ARN,     # MLflow client reads these on startup

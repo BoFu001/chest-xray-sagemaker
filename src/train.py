@@ -39,6 +39,7 @@ def main():
     p.add_argument("--learning-rate", type=float, default=0.001)
     p.add_argument("--patience", type=int, default=3)
     p.add_argument("--hidden-units", type=int, default=10)
+    p.add_argument("--dropout", type=float, default=0.0)
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
@@ -61,6 +62,7 @@ def main():
     x = norm(x)
 
     x = layers.Dense(args.hidden_units, activation="relu")(x)   # hidden layer
+    x = layers.Dropout(args.dropout)(x)                         # 0.0 = no-op
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
 
@@ -85,7 +87,7 @@ def main():
     with mlflow.start_run(run_name=os.environ.get("TRAINING_JOB_NAME")):   # name the run after the SageMaker job
         mlflow.log_params({"epochs": args.epochs, "batch_size": args.batch_size,
                            "learning_rate": args.learning_rate, "patience": args.patience,
-                           "hidden_units": args.hidden_units})
+                           "hidden_units": args.hidden_units, "dropout": args.dropout})
         history = model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2,
                             callbacks=[log_epoch, early_stop])
 
