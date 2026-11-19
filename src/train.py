@@ -31,11 +31,11 @@ def main():
     # Fully reproducible experiments
     tf.keras.utils.set_random_seed(42)              # Python / NumPy / TensorFlow seeds
     tf.config.experimental.enable_op_determinism()  # force deterministic GPU ops
-    mlflow.tensorflow.autolog(log_models=False, checkpoint=False)   # params + per-epoch metrics only
 
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--batch-size", type=int, default=32)
+    p.add_argument("--learning-rate", type=float, default=0.001)
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
@@ -53,12 +53,23 @@ def main():
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
 
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=args.learning_rate),
+                  loss="binary_crossentropy", metrics=["accuracy"])
     model.summary()
 
+    # Log each epoch's metrics to MLflow under consistent train_/val_ names (step = epoch number, from 1)
+    log_epoch = tf.keras.callbacks.LambdaCallback(
+        on_epoch_end=lambda epoch, logs: mlflow.log_metrics({
+            "train_loss": logs["loss"],
+            "train_accuracy": logs["accuracy"],
+            "val_loss": logs["val_loss"],
+            "val_accuracy": logs["val_accuracy"],
+        }, step=epoch + 1)
+    )
+
     with mlflow.start_run(run_name=os.environ.get("TRAINING_JOB_NAME")):   # name the run after the SageMaker job
-        mlflow.log_param("data_batch_size", args.batch_size)               # batching is done by the dataset, so autolog can't see it
-        model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2)
+        mlflow.log_params({"epochs": args.epochs, "batch_size": args.batch_size, "learning_rate": args.learning_rate})
+        model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2, callbacks=[log_epoch])
 
     # Save as a TF SavedModel (under version dir "1", for later deployment)
     model.save(os.path.join(args.model_dir, "1"))
