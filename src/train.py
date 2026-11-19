@@ -38,6 +38,7 @@ def main():
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--learning-rate", type=float, default=0.001)
     p.add_argument("--patience", type=int, default=3)
+    p.add_argument("--hidden-units", type=int, default=10)
     p.add_argument("--model-dir", default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
     p.add_argument("--train", default=os.environ.get("SM_CHANNEL_TRAIN"))
     p.add_argument("--validation", default=os.environ.get("SM_CHANNEL_VALIDATION"))
@@ -46,11 +47,11 @@ def main():
     train_ds = load(args.train, args.batch_size, shuffle=True)
     val_ds = load(args.validation, args.batch_size, shuffle=False)
 
-    # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> standardise -> probability
+    # End-to-end model: raw pixels -> VGG16 preprocessing -> VGG16 (frozen) -> flatten -> standardise -> hidden layer -> probability
     inputs = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
     x = layers.Lambda(preprocess_input)(inputs)
     base = VGG16(include_top=False, weights="imagenet", input_tensor=x)
-    base.trainable = False                                  # freeze; train only the output layer below
+    base.trainable = False                                  # freeze; train only the classifier head below
     x = layers.Flatten()(base.output)
 
     # Feature-wise standardisation (like StandardScaler), statistics from the training set only
@@ -59,6 +60,7 @@ def main():
     norm.adapt(features)
     x = norm(x)
 
+    x = layers.Dense(args.hidden_units, activation="relu")(x)   # hidden layer
     outputs = layers.Dense(1, activation="sigmoid")(x)
     model = Model(inputs, outputs)
 
@@ -82,7 +84,8 @@ def main():
 
     with mlflow.start_run(run_name=os.environ.get("TRAINING_JOB_NAME")):   # name the run after the SageMaker job
         mlflow.log_params({"epochs": args.epochs, "batch_size": args.batch_size,
-                           "learning_rate": args.learning_rate, "patience": args.patience})
+                           "learning_rate": args.learning_rate, "patience": args.patience,
+                           "hidden_units": args.hidden_units})
         history = model.fit(train_ds, validation_data=val_ds, epochs=args.epochs, verbose=2,
                             callbacks=[log_epoch, early_stop])
 
