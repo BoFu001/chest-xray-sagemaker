@@ -33,6 +33,9 @@ the AWS / MLOps workflow.
                                               └─ runs src/train.py
                                               └─ params + per-epoch metrics --> MLflow App
                                               └─ model.tar.gz --> S3
+ 04_tune.py (launcher)  ----------------->  SageMaker Tuning Job
+                                              └─ 15 training jobs, Bayesian search
+                                              └─ objective: best_val_loss, parsed from the log
 ```
 
 - **`config.py`** — central config: region, IAM execution-role ARN, MLflow App ARN,
@@ -44,6 +47,9 @@ the AWS / MLOps workflow.
 - **`03_train.py`** — *launcher* that runs locally and submits a SageMaker training
   job (chooses the instance, framework container, hyperparameters, S3 I/O, and passes
   the MLflow tracking URI and experiment name as environment variables).
+- **`04_tune.py`** — *launcher* for a SageMaker **hyperparameter tuning job**: reuses the
+  same training script, searches learning rate, hidden units and dropout, and returns
+  immediately (`wait=False`) while the trials run in the cloud.
 - **`src/train.py`** — the *training script* that actually runs inside the cloud
   container. An **end-to-end model**: raw pixels → VGG16 preprocessing → frozen
   VGG16 convolutional base → flatten → feature-wise standardisation → classifier
@@ -59,9 +65,12 @@ the AWS / MLOps workflow.
 
 Each training job logs to a SageMaker serverless MLflow App, explicitly:
 
-- **Parameters** (once, before training): `epochs`, `batch_size`, `learning_rate`.
+- **Parameters** (once, before training): `epochs`, `batch_size`, `learning_rate`,
+  `patience`, `hidden_units`, `dropout`.
 - **Metrics** (every epoch, via a Keras callback): `train_loss`, `train_accuracy`,
   `val_loss`, `val_accuracy`, with step = epoch number starting at 1.
+- **Best-epoch metrics** (after training, because early stopping restores the best
+  weights): `best_epoch`, `best_val_loss`, `best_val_accuracy`.
 - Each MLflow run is **named after its SageMaker training job**, so a run can be traced
   straight to its job logs, code snapshot, and `model.tar.gz` in S3.
 
@@ -101,6 +110,57 @@ Changing only the data shuffle order moved validation accuracy by ~0.4%, which i
 why every source of randomness is pinned: otherwise run-to-run noise would be
 indistinguishable from the effect of a real change.
 
+### Early stopping, hidden layer, learning rate
+
+Early stopping on `val_loss` (patience 3, best weights restored) replaces the fixed
+3 epochs. Each row changes one thing relative to the row above, except the last.
+The epoch cap is 10 until the learning-rate row, where it is raised to 30.
+
+| Step | Best epoch | Val loss | Val accuracy |
+|---|---|---|---|
+| + early stopping | 4 | 0.1042 | 97.90% |
+| + hidden layer Dense(10, ReLU) | 1 | 0.0767 | 97.67% |
+| + learning rate 1e-4 | 3 | 0.0609 | 97.93% |
+| + tuned: lr 2.25e-5, hidden 21, dropout 0.16 | 8 | 0.0567 | 98.13% |
+
+Validation accuracy noise is about ±0.26% on 3,000 images, so validation loss is the
+primary metric and accuracy differences between rows are within noise. Training
+accuracy (99.95%+) stays about 2 points above validation accuracy: the frozen VGG16
+features cap the model at roughly 98%.
+
+## Hyperparameter tuning
+
+`04_tune.py` runs SageMaker automatic model tuning: Bayesian search, 15 trials, one at
+a time, minimising `best_val_loss`. The training script prints that value at the end of
+the run and the tuner parses it from the training log with a regular expression (the
+tuner does not read MLflow). Search space: learning rate 1e-5 to 1e-3 (log scale),
+hidden units 8 to 64, dropout 0 to 0.5. Batch size, patience and the epoch cap are
+fixed. Every trial also logs its own MLflow run.
+
+- **Learning rate separates good from bad.** The five trials with a learning rate of
+  1.2e-4 or more are the five worst (val loss 0.065 to 0.110). The other ten
+  (1e-5 to 8e-5) fall between 0.0567 and 0.0621; their median, about 0.0605, is about
+  the same as the hand-tuned baseline (0.0609).
+- **Hidden units and dropout show no pattern**, but all three variables changed at once
+  and there are only 15 points, so their individual effects are not isolated. That
+  would take controlled one-at-a-time runs.
+- **Best trial:** val loss 0.0567 (about 7% below the baseline). It is the minimum of
+  ten similar trials, so it is slightly optimistic, and the accuracy gain (97.93% to
+  98.13%, about 6 images) is within noise. An unbiased estimate needs the held-out test
+  set, which the endpoint step will use.
+- **Reproducibility:** the best configuration, re-run as a standalone job through
+  `03_train.py`, matches the tuning trial to every digit (best epoch, val loss, train
+  loss, train and validation accuracy).
+
+## Lessons learned
+
+- A tuning job passed an extra `--model_dir` argument to the training script, even with
+  `model_dir=False` on the estimator, and `argparse` exited on the unknown argument.
+  The script now declares `--model_dir` under a separate `dest`, so it cannot overwrite
+  the script's own `--model-dir` (which defaults to `SM_MODEL_DIR`).
+  `parse_known_args()` was avoided on purpose: unknown arguments should still fail
+  loudly, otherwise a misspelled hyperparameter name would silently tune nothing.
+
 ## How to run
 
 Environment:
@@ -122,6 +182,7 @@ python 01_download_data.py
 python 02_prepare_data.py
 aws s3 sync data/prepared s3://<your-bucket>/cats-vs-dogs/data
 python 03_train.py
+python 04_tune.py
 ```
 
 A GPU training quota (`ml.g4dn.xlarge for training job usage`) must be requested
@@ -131,8 +192,8 @@ once via AWS Service Quotas for a new account.
 
 - [x] Experiment tracking with SageMaker serverless MLflow
 - [x] Feature-wise standardisation of the VGG16 features
-- [ ] Regularization pass (dropout, data augmentation, early stopping) vs. baseline
-- [ ] Automatic hyperparameter tuning (SageMaker `HyperparameterTuner`)
+- [x] Early stopping, hidden layer and dropout, with learning-rate tuning (data augmentation not done)
+- [x] Automatic hyperparameter tuning (SageMaker `HyperparameterTuner`)
 - [ ] Deploy a real-time inference **endpoint** + test client, evaluated on the held-out test set
 - [ ] Model monitoring and data-drift detection
 
