@@ -23,19 +23,18 @@ the AWS / MLOps workflow.
 ## Pipeline
 
 ```
- local machine                         AWS cloud
- ------------                          ---------
- 01_download_data.py  --(Kaggle API)-->  local data/
- 02_prepare_data.py   --(split)-------->  data/prepared/
-                       --(aws s3 sync)-->  S3  (cats-vs-dogs/data)
- 03_train.py (launcher) ----------------->  SageMaker Training Job
-                                              └─ ml.g4dn.xlarge (T4 GPU)
-                                              └─ runs src/train.py
-                                              └─ params + per-epoch metrics --> MLflow App
-                                              └─ model.tar.gz --> S3
- 04_tune.py (launcher)  ----------------->  SageMaker Tuning Job
-                                              └─ 15 training jobs, Bayesian search
-                                              └─ objective: best_val_loss, parsed from the log
+script               action         result
+-------------------  ----------     ------
+01_download_data.py  Kaggle API  -> data/
+02_prepare_data.py   split       -> data/prepared/
+aws s3 sync          upload      -> S3: cats-vs-dogs/data
+03_train.py          launch      -> SageMaker training job (ml.g4dn.xlarge, T4 GPU)
+                                       +- runs src/train.py
+                                       +- params + per-epoch metrics -> MLflow App
+                                       `- model.tar.gz -> S3
+04_tune.py           launch      -> SageMaker tuning job
+                                       +- 15 training jobs, Bayesian search
+                                       `- objective: best_val_loss, parsed from the log
 ```
 
 - **`config.py`** — central config: region, IAM execution-role ARN, MLflow App ARN,
