@@ -22,19 +22,27 @@ the AWS / MLOps workflow.
 
 ## Pipeline
 
-```
-script               action         result
--------------------  ----------     ------
-01_download_data.py  Kaggle API  -> data/
-02_prepare_data.py   split       -> data/prepared/
-aws s3 sync          upload      -> S3: cats-vs-dogs/data
-03_train.py          launch      -> SageMaker training job (ml.g4dn.xlarge, T4 GPU)
-                                       +- runs src/train.py
-                                       +- params + per-epoch metrics -> MLflow App
-                                       `- model.tar.gz -> S3
-04_tune.py           launch      -> SageMaker tuning job
-                                       +- 15 training jobs, Bayesian search
-                                       `- objective: best_val_loss, parsed from the log
+```mermaid
+flowchart LR
+  subgraph local["Local machine"]
+    A["01_download_data.py<br/>Kaggle API"] --> B["02_prepare_data.py<br/>split 70/15/15"]
+    T["03_train.py"]
+    U["04_tune.py"]
+  end
+  subgraph aws["AWS cloud"]
+    S[("S3<br/>cats-vs-dogs/data")]
+    J["SageMaker training job<br/>ml.g4dn.xlarge, T4 GPU<br/>runs src/train.py"]
+    H["SageMaker tuning job<br/>15 Bayesian trials"]
+    M["MLflow App"]
+    O[("S3<br/>model.tar.gz")]
+  end
+  B -->|aws s3 sync| S
+  S --> J
+  T -->|launch| J
+  U -->|launch| H
+  H -->|each trial is a training job| J
+  J -->|params + metrics| M
+  J --> O
 ```
 
 - **`config.py`** — central config: region, IAM execution-role ARN, MLflow App ARN,
