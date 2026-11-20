@@ -28,10 +28,10 @@ estimator = TensorFlow(
     hyperparameters={
         "epochs": 30,
         "batch-size": 32,
-        "learning-rate": 0.0001,
+        "learning-rate": 2.2513479085543802e-05,
         "patience": 3,
-        "hidden-units": 10,
-        "dropout": 0.0,
+        "hidden-units": 21,
+        "dropout": 0.15927262161096856,
     },
     environment={
         "MLFLOW_TRACKING_URI": MLFLOW_APP_ARN,     # MLflow client reads these on startup
